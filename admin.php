@@ -1,0 +1,314 @@
+<?php
+session_start();
+
+// Check if admin is logged in
+if (!isset($_SESSION["admin_logged_in"]) || $_SESSION["admin_logged_in"] !== true) {
+    header("Location: login.php");
+    exit;
+}
+
+// Function to get all apps from the index.html file
+function getAppsFromHTML() {
+    $html = file_get_contents('index.html');
+    $apps = [];
+    
+    // Extract app items using regex
+    preg_match_all('/<li class="app-item_dont_copy_created_by_allappstore_com">(.*?)<\/li>/s', $html, $matches);
+    
+    if (!empty($matches[0])) {
+        foreach ($matches[0] as $index => $appHTML) {
+            // Extract app details
+            preg_match('/<img src="([^"]*)" alt="([^"]*)"/', $appHTML, $imgMatch);
+            preg_match('/<h6 class="app-title_dont_copy_created_by_allappstore_com">(.*?)<\/h6>/', $appHTML, $titleMatch);
+            preg_match('/Sign Up Bonus ₹([\d-]+)/', $appHTML, $bonusMatch);
+            preg_match('/Min\. Withdraw ₹([\d-]+)/', $appHTML, $withdrawMatch);
+            preg_match('/<a href="([^"]*)">/', $appHTML, $linkMatch);
+            
+            if (!empty($titleMatch)) {
+                $apps[] = [
+                    'id' => $index + 1,
+                    'image' => !empty($imgMatch) ? $imgMatch[1] : '',
+                    'title' => $titleMatch[1],
+                    'bonus' => !empty($bonusMatch) ? $bonusMatch[1] : '',
+                    'withdraw' => !empty($withdrawMatch) ? $withdrawMatch[1] : '',
+                    'landing_page' => !empty($linkMatch) ? $linkMatch[1] : '#',
+                    'html' => $appHTML
+                ];
+            }
+        }
+    }
+    
+    return $apps;
+}
+
+// Get app data from JSON file if it exists
+function getAppData($landingPage) {
+    $appsDataFile = 'apps_data.json';
+    if (file_exists($appsDataFile)) {
+        $appsData = json_decode(file_get_contents($appsDataFile), true);
+        foreach ($appsData as $app) {
+            if ($app['landing_page'] === $landingPage) {
+                return $app;
+            }
+        }
+    }
+    return null;
+}
+
+$apps = getAppsFromHTML();
+$activeTab = isset($_GET['tab']) ? $_GET['tab'] : 'add';
+$successMessage = '';
+$landingPageUrl = '';
+
+if (isset($_GET['success']) && $_GET['success'] == '1') {
+    if (isset($_GET['landing_page'])) {
+        $landingPageUrl = $_GET['landing_page'];
+        $successMessage = "Operation completed successfully! Landing page created: <a href='{$landingPageUrl}' target='_blank'>{$landingPageUrl}</a>";
+    } else {
+        $successMessage = "Operation completed successfully!";
+    }
+}
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Yono Spin Code</title>
+    <link rel="stylesheet" href="admin-style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-cogs"></i> Admin Panel</h2>
+            </div>
+            <ul class="sidebar-menu">
+                <li class="<?php echo $activeTab === 'add' ? 'active' : ''; ?>">
+                    <a href="?tab=add"><i class="fas fa-plus-circle"></i> Add New App</a>
+                </li>
+                <li class="<?php echo $activeTab === 'manage' ? 'active' : ''; ?>">
+                    <a href="?tab=manage"><i class="fas fa-list"></i> Manage Apps</a>
+                </li>
+                <li class="<?php echo $activeTab === 'modify' ? 'active' : ''; ?>">
+                    <a href="?tab=modify"><i class="fas fa-edit"></i> Modify Apps</a>
+                </li>
+                <li>
+                    <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                </li>
+            </ul>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="header">
+                <h1>
+                    <?php if ($activeTab === 'add'): ?>
+                        <i class="fas fa-plus-circle"></i> Add New App
+                    <?php elseif ($activeTab === 'manage'): ?>
+                        <i class="fas fa-list"></i> Manage Apps
+                    <?php elseif ($activeTab === 'modify'): ?>
+                        <i class="fas fa-edit"></i> Modify Apps
+                    <?php endif; ?>
+                </h1>
+            </div>
+            
+            <?php if ($successMessage): ?>
+                <div class="success-message">
+                    <?php echo $successMessage; ?>
+                </div>
+            <?php endif; ?>
+            
+            <div class="content">
+                <?php if ($activeTab === 'add'): ?>
+                    <!-- Add New App Form -->
+                    <div class="card">
+                        <form action="process_app.php" method="post" enctype="multipart/form-data">
+                            <input type="hidden" name="action" value="add">
+                            
+                            <div class="form-group">
+                                <label for="app_logo"><i class="fas fa-image"></i> App Logo</label>
+                                <input type="file" id="app_logo" name="app_logo" accept="image/*" required>
+                                <div class="preview-container">
+                                    <img id="logo-preview" src="#" alt="Logo Preview" style="display: none;">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="app_name"><i class="fas fa-tag"></i> App Name</label>
+                                <input type="text" id="app_name" name="app_name" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="bonus_amount"><i class="fas fa-gift"></i> Bonus Amount (₹)</label>
+                                <input type="text" id="bonus_amount" name="bonus_amount" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="min_withdraw"><i class="fas fa-money-bill-wave"></i> Minimum Withdrawal (₹)</label>
+                                <input type="text" id="min_withdraw" name="min_withdraw" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="download_link"><i class="fas fa-link"></i> Download Link</label>
+                                <input type="text" id="download_link" name="download_link" placeholder="https://example.com/download" required>
+                                <small class="form-text">Enter the URL where users can download this app</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label><i class="fas fa-list"></i> Add to Sections</label>
+                                <div class="checkbox-group">
+                                    <label>
+                                        <input type="checkbox" name="add_to_all_apps" checked> All Apps
+                                    </label>
+                                    <label>
+                                        <input type="checkbox" name="add_to_new_apps" checked> New Apps
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus-circle"></i> Add App
+                            </button>
+                        </form>
+                    </div>
+                <?php elseif ($activeTab === 'manage'): ?>
+                    <!-- Manage Apps Table -->
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="apps-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Logo</th>
+                                        <th>App Name</th>
+                                        <th>Bonus</th>
+                                        <th>Min. Withdraw</th>
+                                        <th>Landing Page</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($apps as $app): ?>
+                                    <tr>
+                                        <td><?php echo $app['id']; ?></td>
+                                        <td>
+                                            <img src="<?php echo $app['image']; ?>" alt="<?php echo $app['title']; ?>" class="app-logo-small">
+                                        </td>
+                                        <td><?php echo $app['title']; ?></td>
+                                        <td>₹<?php echo $app['bonus']; ?></td>
+                                        <td>₹<?php echo $app['withdraw']; ?></td>
+                                        <td>
+                                            <a href="<?php echo $app['landing_page']; ?>" target="_blank" class="link-preview">
+                                                <?php echo $app['landing_page']; ?>
+                                            </a>
+                                        </td>
+                                        <td>
+                                            <a href="process_app.php?action=delete&id=<?php echo $app['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this app?')">
+                                                <i class="fas fa-trash"></i> Delete
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                <?php elseif ($activeTab === 'modify'): ?>
+                    <!-- Modify Apps -->
+                    <div class="card">
+                        <div class="apps-grid">
+                            <?php foreach ($apps as $app): ?>
+                            <div class="app-card">
+                                <div class="app-card-header">
+                                    <img src="<?php echo $app['image']; ?>" alt="<?php echo $app['title']; ?>" class="app-logo-medium">
+                                    <h3><?php echo $app['title']; ?></h3>
+                                </div>
+                                <div class="app-card-body">
+                                    <p><i class="fas fa-gift"></i> Bonus: ₹<?php echo $app['bonus']; ?></p>
+                                    <p><i class="fas fa-money-bill-wave"></i> Min. Withdraw: ₹<?php echo $app['withdraw']; ?></p>
+                                    <p><i class="fas fa-link"></i> Landing Page: 
+                                        <a href="<?php echo $app['landing_page']; ?>" target="_blank" class="link-preview">
+                                            <?php echo substr($app['landing_page'], 0, 25); ?><?php echo (strlen($app['landing_page']) > 25) ? '...' : ''; ?>
+                                        </a>
+                                    </p>
+                                </div>
+                                <div class="app-card-footer">
+                                    <?php 
+                                        $appData = getAppData($app['landing_page']);
+                                        $downloadLink = $appData ? $appData['download_link'] : '';
+                                    ?>
+                                    <button class="btn btn-primary btn-sm" onclick="openModifyModal(<?php echo $app['id']; ?>, '<?php echo $app['title']; ?>', '<?php echo $app['bonus']; ?>', '<?php echo $app['withdraw']; ?>', '<?php echo $app['image']; ?>', '<?php echo $app['landing_page']; ?>', '<?php echo $downloadLink; ?>')">
+                                        <i class="fas fa-edit"></i> Modify
+                                    </button>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modify App Modal -->
+    <div id="modifyModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2><i class="fas fa-edit"></i> Modify App</h2>
+            
+            <form action="process_app.php" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="modify">
+                <input type="hidden" id="modify_app_id" name="app_id">
+                
+                <div class="form-group">
+                    <label for="modify_app_logo"><i class="fas fa-image"></i> App Logo</label>
+                    <div class="current-logo">
+                        <p>Current Logo:</p>
+                        <img id="current_logo" src="/placeholder.svg" alt="Current Logo">
+                    </div>
+                    <input type="file" id="modify_app_logo" name="app_logo" accept="image/*">
+                    <div class="preview-container">
+                        <img id="modify-logo-preview" src="#" alt="New Logo Preview" style="display: none;">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="modify_app_name"><i class="fas fa-tag"></i> App Name</label>
+                    <input type="text" id="modify_app_name" name="app_name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="modify_bonus_amount"><i class="fas fa-gift"></i> Bonus Amount (₹)</label>
+                    <input type="text" id="modify_bonus_amount" name="bonus_amount" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="modify_min_withdraw"><i class="fas fa-money-bill-wave"></i> Minimum Withdrawal (₹)</label>
+                    <input type="text" id="modify_min_withdraw" name="min_withdraw" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="modify_download_link"><i class="fas fa-link"></i> Download Link</label>
+                    <input type="text" id="modify_download_link" name="download_link" required>
+                    <small class="form-text">Enter the URL where users can download this app</small>
+                </div>
+                
+                <div class="form-group">
+                    <label><i class="fas fa-file-code"></i> Landing Page</label>
+                    <div id="landing_page_info" class="landing-page-info"></div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <script src="admin-script.js"></script>
+</body>
+</html>
